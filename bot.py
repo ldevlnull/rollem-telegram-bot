@@ -7,25 +7,26 @@ import traceback
 import unicodedata
 import logging
 from telegram import Update
-#from telegram.ext import ApplicationBuilder, Updater, CommandHandler, CallbackContext
+# from telegram.ext import ApplicationBuilder, Updater, CommandHandler, CallbackContext
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from codecs import encode,decode
+from codecs import encode, decode
 from datetime import datetime
 from ast import literal_eval
 
 ladder = {
-    8  : 'Legendary',
-    7  : 'Epic',
-    6  : 'Fantastic',
-    5  : 'Superb',
-    4  : 'Great',
-    3  : 'Good',
-    2  : 'Fair',
-    1  : 'Average',
-    0  : 'Mediocre',
-    -1 : 'Poor',
-    -2 : 'Terrible'
+    8: 'Legendary',
+    7: 'Epic',
+    6: 'Fantastic',
+    5: 'Superb',
+    4: 'Great',
+    3: 'Good',
+    2: 'Fair',
+    1: 'Average',
+    0: 'Mediocre',
+    -1: 'Poor',
+    -2: 'Terrible'
 }
+
 
 def get_ladder(result):
     if result > 8:
@@ -35,11 +36,13 @@ def get_ladder(result):
     else:
         return ladder[result]
 
-fate_options = { 
-        -1 : '[-]', 
-        0  : '[  ]', 
-        1  : '[+]' 
-    }
+
+fate_options = {
+    -1: '[-]',
+    0: '[  ]',
+    1: '[+]'
+}
+
 
 async def rf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.debug(context.args)
@@ -48,6 +51,21 @@ async def rf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         context.args = ['4df']
     await process(update, context)
+
+
+async def rcp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.debug(context.args)
+    if len(context.args) > 0:
+        context.args[0] = '1d10c+' + str(context.args[0])
+    await process(update, context)
+
+
+async def scp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.debug(context.args)
+    if len(context.args) > 0:
+        context.args[0] = '1d10'
+    await process(update, context)
+
 
 async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     username = update.message.from_user.username if update.message.from_user.username else update.message.from_user.first_name
@@ -63,7 +81,7 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     high_low_helper = ''
     if '2d20' in equation.lower() and not ('2d20h' in equation.lower() or '2d20l' in equation.lower()):
         pass
-        #high_low_helper = 'Get the highest or lowest dice from a roll with H and L.\r\nType <code>/help</code> for more info.\r\n\r\n'
+        # high_low_helper = 'Get the highest or lowest dice from a roll with H and L.\r\nType <code>/help</code> for more info.\r\n\r\n'
     result = {
         'visual': [],
         'equation': [],
@@ -91,17 +109,24 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     current_visual_results = ''
                     plus = ''
                     explode = False
+                    cp_can_explode = False  # explodes only once
+                    cp_can_implode = False
+                    cp_already_exploded = False
+                    cp_already_imploded = False
                     highest = False
                     lowest = False
                     if dice.group(3) and dice.group(3)[0] == '!' and int(dice.group(2)) > 1:
-                        explode = True 
-                    elif dice.group(3) and dice.group(3)[0] in ['h','H']:
+                        explode = True
+                    elif dice.group(3) and dice.group(3)[0] in ['h', 'H']:
                         highest = True
-                    elif dice.group(3) and dice.group(3)[0] in ['l','L']:
+                    elif dice.group(3) and dice.group(3)[0] in ['l', 'L']:
                         lowest = True
+                    elif dice.group(3) and dice.group(3)[0] in ['c', 'C']:
+                        cp_can_implode = True
+                        cp_can_explode = True
 
                     random_start_num = 1
-                    if sides in ['f','F']:
+                    if sides in ['f', 'F']:
                         is_fate = True
                         use_ladder = True
                         sides = 1
@@ -110,28 +135,39 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         sides = int(sides)
 
                     while dice_num > 0:
-                        
+
                         last_roll = random.randint(random_start_num, sides)
-                        visual_last_roll = plus + str(last_roll)
+                        if not cp_already_imploded:
+                            visual_last_roll = plus + str(last_roll)
+                        else:
+                            visual_last_roll = '-' + str(last_roll)
+
                         if is_fate:
                             visual_last_roll = fate_options[last_roll] + ' '
-                        current_visual_results +=  visual_last_roll
+                        current_visual_results += visual_last_roll
 
                         if (highest or lowest) and current_die_results:
-                            #print(current_die_results)
+                            # print(current_die_results)
                             if highest:
                                 if last_roll > int(current_die_results):
                                     current_die_results = str(last_roll)
-                            else: #lowest
+                            else:  # lowest
                                 if last_roll < int(current_die_results):
                                     current_die_results = str(last_roll)
                         else:
-                            current_die_results += plus + str(last_roll)
+                            if not cp_already_imploded:
+                                current_die_results += plus + str(last_roll)
+                            else:
+                                current_die_results += ' - ' + str(last_roll)
 
                         if not (explode and last_roll == sides):
                             dice_num -= 1
 
-                        if len(plus) == 0: 
+                        if not (cp_already_exploded or cp_already_imploded) and (cp_can_explode and last_roll == sides
+                                                                                 or cp_can_implode and last_roll == 1):
+                            dice_num -= 1
+
+                        if len(plus) == 0:
                             # Adds all results to result unless it is the first one
                             plus = ' + '
 
@@ -147,12 +183,12 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     if highest or lowest:
                         result['visual'].append(dice.group(3)[0])
                 else:
-                    if item and (item in ['+','-','/','*',')','('] or int(item)):
+                    if item and (item in ['+', '-', '/', '*', ')', '('] or int(item)):
                         result['visual'].append(' ')
                         result['visual'].append(item)
                         result['equation'].append(item)
 
-        result['total'] = str(''.join(result['equation'])).replace(" ","")
+        result['total'] = str(''.join(result['equation'])).replace(" ", "")
         if bool(re.match('^[0-9+*/ ()-]+$', result['total'])):
             result['total'] = eval(result['total'])
         else:
@@ -169,8 +205,10 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(result['visual']) > 275:
             result['visual'] = result['visual'][0:275] + ' . . . )'
 
-        logging.info(f'@{username} | ' + ' '.join(context.args) + ' = ' + ''.join(result['equation']) + ' = ' + str(result['total']) + nat20text)
-        response = (f'{high_low_helper}@{username} rolled<b>{comment}</b>:\r\n {result["visual"]} =\r\n<b>{str(result["total"])}</b>{nat20text}')
+        logging.info(f'@{username} | ' + ' '.join(context.args) + ' = ' + ''.join(result['equation']) + ' = ' + str(
+            result['total']) + nat20text)
+        response = (
+            f'{high_low_helper}@{username} rolled<b>{comment}</b>:\r\n {result["visual"]} =\r\n<b>{str(result["total"])}</b>{nat20text}')
         error = ''
 
     except Exception as e:
@@ -178,14 +216,14 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if dice_num and dice_num > 1000:
             response += str(e) + '.\r\n'
         response += ('Please use <a href="https://en.wikipedia.org/wiki/Dice_notation">dice notation</a>.\r\n' +
-                'For example: <code>3d6</code>, or <code>1d20+5</code>, or <code>d12</code>\r\n\r\n' +
-                'For more information, type <code>/help</code>'
-            )
+                     'For example: <code>3d6</code>, or <code>1d20+5</code>, or <code>d12</code>\r\n\r\n' +
+                     'For more information, type <code>/help</code>'
+                     )
         error = traceback.format_exc().replace('\r', '').replace('\n', '; ')
         logging.warning(f'@{username} | /r {equation} | RESPONSE: Invalid Equation |\r\n{error}')
 
     await update.message.reply_text(response, parse_mode='HTML')
-    #context.bot.send_message(chat_id=update.message.chat_id, text=response, parse_mode='HTML')
+    # context.bot.send_message(chat_id=update.message.chat_id, text=response, parse_mode='HTML')
 
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -195,12 +233,13 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     help_file.close()
     logging.info(f'@{username} | /help')
     await update.message.reply_text(response, parse_mode='HTML')
-    #job = context.job
-    #context.bot.send_message(chat_id=update.message.chat_id, text=response, parse_mode='HTML', disable_web_page_preview=True)
-    
+    # job = context.job
+    # context.bot.send_message(chat_id=update.message.chat_id, text=response, parse_mode='HTML', disable_web_page_preview=True)
+
+
 TOKEN = sys.argv[1]
 
-formatter = logging.Formatter('====> %(asctime)s | %(name)s | %(levelname)s | %(message)s')
+formatter = logging.heFormatter('====> %(asctime)s | %(name)s | %(levelname)s | %(message)s')
 stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setLevel(logging.INFO)
 stream_handler.setFormatter(formatter)
@@ -209,20 +248,21 @@ file_handler.setLevel(logging.WARNING)
 file_handler.setFormatter(formatter)
 
 logger = logging.basicConfig(
-        handlers = [stream_handler,file_handler],
-        level=logging.DEBUG,
-    )
+    handlers=[stream_handler, file_handler],
+    level=logging.DEBUG,
+)
 
 
 def main() -> None:
-
     """Start the bot."""
     # Create the Application and pass it your bot's token.
     app = ApplicationBuilder().token(TOKEN).build()
 
     # on different commands - answer in Telegram
-    app.add_handler(CommandHandler(['roll','r'], process))
+    app.add_handler(CommandHandler(['roll', 'r'], process))
     app.add_handler(CommandHandler('rf', rf))
+    app.add_handler(CommandHandler('rcp', rcp))
+    app.add_handler(CommandHandler('scp', scp))
     app.add_handler(CommandHandler('help', help))
 
     # on non command i.e message - echo the message on Telegram
@@ -230,6 +270,7 @@ def main() -> None:
 
     # Run the bot until the user presses Ctrl-C
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
